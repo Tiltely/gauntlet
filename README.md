@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.gif" alt="gauntlet — inevitable constraints around a coding agent" width="100%">
+</p>
+
 # gauntlet
 
 **Skills are intention. Hooks are law.**
