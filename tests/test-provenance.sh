@@ -32,7 +32,7 @@ OUT=$(write "$FIX" 'col_a,col_b
 1,2')
 check "fixture without meta -> deny" '"permissionDecision": "deny"' "$OUT"
 check "deny names the sidecar" 'benefits.csv.meta.json' "$OUT"
-check "deny cites the real failure" 'the CSV incident' "$OUT"
+check "deny explains the consequence" 'columns that never existed' "$OUT"
 
 # --- with the sidecar in place ---------------------------------------------------------
 meta "just capture-provider-benefits 4471" >"$FIX.meta.json"
