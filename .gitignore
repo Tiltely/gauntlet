@@ -1,0 +1,6 @@
+.DS_Store
+.in_use/
+
+# The design spec stays local: it is written against a specific employer's repos, tickets and
+# upstream providers. The README and CHANGELOG carry the public story.
+docs/specs/

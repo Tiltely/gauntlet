@@ -1,0 +1,87 @@
+name: Release
+
+# When the plugin version bumps on main, cut the matching git tag + GitHub Release
+# from the CHANGELOG. The `version` field in plugin.json is what gates updates for
+# consumers (see plugin-marketplaces docs); this just keeps tags/releases in lockstep
+# with it so the OSS release history never drifts again.
+#
+# Idempotent: if the tag for the current version already exists, it does nothing —
+# so re-runs, reverts, and non-version commits are all safe. Tag pushes do not match
+# `branches: [main]`, so this never re-triggers itself.
+#
+# Security: `version` comes from a repo file (only writable by maintainers via main),
+# but as defense-in-depth it is validated against a strict semver pattern and every
+# value is passed through `env:` and used as a quoted shell var — never interpolated
+# as ${{ }} directly inside a run: block.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.claude-plugin/plugin.json'
+  workflow_dispatch:  # manual trigger — safe no-op if the current version's tag exists
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history + existing tags for idempotency check
+
+      - name: Read and validate plugin version
+        id: ver
+        run: |
+          version=$(jq -r '.version' .claude-plugin/plugin.json)
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::invalid or missing semver version in plugin.json: '$version'"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if tag already exists
+        id: check
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG already exists — nothing to release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract CHANGELOG notes
+        if: steps.check.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { f = 1; next }
+            /^## \[/ { if (f) exit }
+            f
+          ' CHANGELOG.md > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            printf 'Release %s\n' "$TAG" > /tmp/notes.md
+          fi
+
+      - name: Create tag and GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file /tmp/notes.md \
+            --verify-tag \
+            --latest

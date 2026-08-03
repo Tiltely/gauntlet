@@ -1,0 +1,12 @@
+{
+  "name": "gauntlet-dev",
+  "owner": { "name": "Tiltely", "email": "leo@tiltely.com" },
+  "description": "Local development marketplace for the gauntlet plugin. The published entry lives in Tiltely/lens's marketplace.json under the `tiltely` name — this one exists so the plugin can be installed straight from a checkout, before or instead of publishing.",
+  "plugins": [
+    {
+      "name": "gauntlet",
+      "source": "./",
+      "description": "Inevitable constraints around a coding agent: the turn does not close while the fast check is red, the agent cannot loosen the gate on its own, and no external-payload fixture is written without provenance."
+    }
+  ]
+}
