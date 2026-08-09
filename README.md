@@ -96,7 +96,7 @@ cannot decode gets switched off within a day.
 }
 ```
 
-Full field semantics in [`core/manifest.md`](core/manifest.md). **Commit this file** — it is
+Full field semantics in [`core/manifest.md`](core/manifest.md). `/gauntlet:setup` **commits it for you** — it is
 project configuration, and git-ignored it would leave every new worktree ungated and silent
 about it.
 

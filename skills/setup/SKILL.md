@@ -60,13 +60,38 @@ graph from scratch. Same for `tsc`. Measure the narrowed command before believin
 Read `${CLAUDE_PLUGIN_ROOT}/core/manifest.md` for the field semantics and the glob subset
 (brace expansion is not supported — spell the patterns out).
 
-Two things to tell the user, because both look like bugs otherwise:
+Tell the user this, because it looks like a bug otherwise: **writing this file triggers a
+permission prompt.** The manifest is a protected artefact — `protect.sh` escalates every
+edit to it, including this one. That is the mechanism working, not a fault.
 
-- **Writing this file triggers a permission prompt.** The manifest is a protected artefact:
-  `protect.sh` escalates every edit to it, including this one. That is the mechanism
-  working, not a fault.
-- **Commit the manifest.** It is project configuration, not user preference. Git-ignored, it
-  would leave every new worktree ungated and silent about it.
+### 3b. Commit it — do not advise it
+
+An uncommitted manifest arms nobody but the person who wrote it. Untracked files do not
+propagate to `git worktree add`, so every worktree starts ungated while the main checkout
+looks armed, and a fresh clone gets nothing at all. Telling the user to commit it is
+intention, and this plugin exists because intention is not enforcement. **Do it.**
+
+```sh
+git add .claude/gauntlet.json
+git commit -m "chore: arm the gauntlet gate"
+```
+
+Show the commands, then run them. Two situations where you stage only and say which:
+
+- **Unrelated changes are already staged** — committing would sweep them in.
+- **The branch is not one to commit to directly** — their default branch with protection
+  on it, or a branch that is not theirs.
+
+In both cases add the sentence people misread: **a staged manifest still does not reach a
+worktree.** Only a commit does.
+
+Then verify the claim instead of asserting it: `git ls-files .claude/gauntlet.json` must
+print the path. Anything else means the gate is armed for this checkout and nothing else.
+
+**Committing is necessary, not sufficient.** The manifest declares what the gate is; the
+hooks that enforce it are installed per machine. A teammate without this plugin has no
+gate however well the file is committed. Say both halves, or the user will believe one
+commit armed the team.
 
 ### 4. Verify it actually fires
 

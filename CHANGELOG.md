@@ -5,6 +5,27 @@ All notable changes to the gauntlet plugin.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-08-09
+
+### Changed
+- **`/gauntlet:setup` now commits the manifest instead of advising it.** The old step ended
+  with a bullet reading *"Commit the manifest"* — advice, in a plugin whose whole thesis is
+  that advice is not enforcement. An uncommitted manifest arms nobody but its author:
+  untracked files do not propagate to `git worktree add`, so every worktree starts ungated
+  while the main checkout looks armed, and a fresh clone gets nothing.
+
+  Found in the wild — a repo with the manifest present in its main checkout and absent from
+  all three of its worktrees, one of which was running an autonomous agent that therefore
+  ran with no gate at all.
+
+  Setup now shows `git add` + `git commit` and runs them, staging only when unrelated changes
+  are already staged or the branch is not one to commit to directly — and in that case says
+  the part people misread: **a staged manifest still does not reach a worktree.** It then
+  verifies with `git ls-files` rather than asserting success.
+- Setup and the README now both state that committing is **necessary but not sufficient**:
+  the manifest declares the gate, the hooks that enforce it are installed per machine, so a
+  teammate without the plugin has no gate however well the file is committed.
+
 ## [0.1.0] - 2026-07-27
 
 First release. Three hooks and three skills.
