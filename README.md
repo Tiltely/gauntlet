@@ -59,7 +59,7 @@ this plugin exists to prevent, so the dangerous subset does not depend on it.
 ## Install
 
 ```
-/plugin marketplace add Tiltely/lens
+/plugin marketplace add Tiltely/plugins
 /plugin install gauntlet@tiltely
 /reload-plugins
 ```

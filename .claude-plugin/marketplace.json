@@ -1,7 +1,7 @@
 {
   "name": "gauntlet-dev",
   "owner": { "name": "Tiltely", "email": "leo@tiltely.com" },
-  "description": "Local development marketplace for the gauntlet plugin. The published entry lives in Tiltely/lens's marketplace.json under the `tiltely` name — this one exists so the plugin can be installed straight from a checkout, before or instead of publishing.",
+  "description": "Local development marketplace for the gauntlet plugin. The published entry lives in the `tiltely` catalogue at Tiltely/plugins — this one exists so the plugin can be installed straight from a checkout, which is what you want while developing it.",
   "plugins": [
     {
       "name": "gauntlet",
