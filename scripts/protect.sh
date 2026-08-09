@@ -169,8 +169,10 @@ minimum_coverage
 coverageThreshold'
 
     for _t in $THRESHOLDS; do
-        _o=$(printf '%s\n' "$OLD" | grep -oE -- "$_t[^0-9]*[0-9]+" 2>/dev/null | head -1)
-        _n=$(printf '%s\n' "$NEW" | grep -oE -- "$_t[^0-9]*[0-9]+" 2>/dev/null | head -1)
+        # Braces are load-bearing for shellcheck, not for sh: bare `$_t[` reads as an array
+        # subscript (SC1087, error-level) and fails CI. The expansion is identical.
+        _o=$(printf '%s\n' "$OLD" | grep -oE -- "${_t}[^0-9]*[0-9]+" 2>/dev/null | head -1)
+        _n=$(printf '%s\n' "$NEW" | grep -oE -- "${_t}[^0-9]*[0-9]+" 2>/dev/null | head -1)
         if [ -n "$_o" ] && [ -n "$_n" ] && [ "$_o" != "$_n" ]; then
             gauntlet_pretooluse_decision "deny" \
                 "gauntlet: this moves a coverage threshold ($_o -> $_n) in \`$FILE\`. Lowering the floor turns every uncovered line green at once. Raise the coverage instead."
