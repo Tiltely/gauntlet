@@ -3,8 +3,11 @@
 `banner.gif` — the README header. Same shape as lens's: **640×200, animated, `width="100%"`**
 in the markup so it renders full-width on GitHub.
 
-Not committed yet. To add one, drop the source clip or gif here and crop it to the banner
-shape:
+The current one is Kurapika's Judgement Chain — a condition set in the target's heart
+that closes if the condition is broken, which is this plugin's whole argument in one
+image. Source: a 640×358 gif, cropped with the second recipe below; 376 KB, 29 frames.
+
+To replace it, drop the source clip or gif here and crop it to the banner shape:
 
 ```sh
 # from a video clip

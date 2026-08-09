@@ -17,6 +17,13 @@ out of, so you can trust the code without reading every line of it.
 >
 > — Robert C. Martin, July 2026
 
+Hunter × Hunter got there first, and called it 制約と誓約 — *restrictions and vows*. A Nen
+ability grows in proportion to the severity of the restriction its user binds themselves
+with, and the vow only counts when breaking it costs something you cannot avoid paying.
+Kurapika's Judgement Chain is set inside the target's heart: violate the condition and it
+closes. A vow you can lift on the day it inconveniences you buys nothing — which is the
+entire reason this plugin is hooks and not a skill.
+
 Process skills already exist for this — TDD, verify-before-completion, test-quality review.
 They are *negotiable*: a model can reason its way to why they do not apply this time. A `Stop`
 hook that returns `decision: block` cannot be reasoned with.
