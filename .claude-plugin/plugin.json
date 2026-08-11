@@ -1,6 +1,6 @@
 {
   "name": "gauntlet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Inevitable constraints around a coding agent: the turn does not close while the repo's fast check is red, the agent cannot loosen the gate on its own, and no fixture of an external payload gets written without provenance. Skills are intention; hooks are law.",
   "author": { "name": "Tiltely", "email": "leo@tiltely.com", "url": "https://www.tiltely.com" },
   "homepage": "https://github.com/Tiltely/gauntlet",

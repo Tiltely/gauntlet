@@ -10,31 +10,45 @@ printf 'protect.sh\n'
 R=$(make_repo)
 write_manifest "$R" "true"
 
-edit() { # edit <file> <old> <new>
+edit() { # edit <file> <old> <new> [session]
     pretooluse_payload Edit "$(jq -n --arg f "$1" --arg o "$2" --arg n "$3" \
-        '{file_path:$f, old_string:$o, new_string:$n}')" "$R" | sh "$SCRIPTS/protect.sh"
+        '{file_path:$f, old_string:$o, new_string:$n}')" "$R" "${4:-}" | sh "$SCRIPTS/protect.sh"
 }
 write() { # write <file> <content>
     pretooluse_payload Write "$(jq -n --arg f "$1" --arg c "$2" '{file_path:$f, content:$c}')" "$R" |
         sh "$SCRIPTS/protect.sh"
 }
-bash_cmd() {
-    pretooluse_payload Bash "$(jq -n --arg c "$1" '{command:$c}')" "$R" | sh "$SCRIPTS/protect.sh"
+bash_cmd() { # bash_cmd <command> [session]
+    pretooluse_payload Bash "$(jq -n --arg c "$1" '{command:$c}')" "$R" "${2:-}" |
+        sh "$SCRIPTS/protect.sh"
 }
 
-# --- protected paths -------------------------------------------------------------------
-check "pyproject.toml -> ask" '"permissionDecision": "ask"' "$(edit "$R/pyproject.toml" a b)"
-check "manifest -> ask" '"permissionDecision": "ask"' "$(edit "$R/.claude/gauntlet.json" a b)"
-check "settings.json -> ask" '"permissionDecision": "ask"' "$(edit "$HOME/.claude/settings.json" a b)"
-check "Justfile -> ask" '"permissionDecision": "ask"' "$(edit "$R/Justfile" a b)"
-check "ruff.toml -> ask" '"permissionDecision": "ask"' "$(edit "$R/ruff.toml" a b)"
-check ".coveragerc -> ask" '"permissionDecision": "ask"' "$(edit "$R/.coveragerc.testcov" a b)"
-check "workflow -> ask" '"permissionDecision": "ask"' "$(edit "$R/.github/workflows/ci.yml" a b)"
-check "package.json -> ask" '"permissionDecision": "ask"' "$(edit "$R/package.json" a b)"
-check "jest.config.ts -> ask" '"permissionDecision": "ask"' "$(edit "$R/jest.config.ts" a b)"
-check "tsconfig.json -> ask" '"permissionDecision": "ask"' "$(edit "$R/tsconfig.json" a b)"
-check "plugin's own scripts -> ask" '"permissionDecision": "ask"' \
-    "$(edit "/x/gauntlet/scripts/gate.sh" a b)"
+# --- protected paths: recorded, never a prompt -------------------------------------------
+# These used to be `ask`. The rule fired on every honest pyproject.toml edit — which is most
+# of them — and a guard that is wrong most of the time only teaches the user to approve
+# without reading. It now writes a ledger line and gets out of the way.
+S_LED=$(new_session paths)
+rm -f "$(ledger_of "$S_LED")"
+
+check "pyproject.toml -> no prompt" EMPTY "$(edit "$R/pyproject.toml" a b "$S_LED")"
+check "manifest -> no prompt" EMPTY "$(edit "$R/.claude/gauntlet.json" a b "$S_LED")"
+check "settings.json -> no prompt" EMPTY "$(edit "$HOME/.claude/settings.json" a b "$S_LED")"
+check "Justfile -> no prompt" EMPTY "$(edit "$R/Justfile" a b "$S_LED")"
+check "ruff.toml -> no prompt" EMPTY "$(edit "$R/ruff.toml" a b "$S_LED")"
+check ".coveragerc -> no prompt" EMPTY "$(edit "$R/.coveragerc.testcov" a b "$S_LED")"
+check "workflow -> no prompt" EMPTY "$(edit "$R/.github/workflows/ci.yml" a b "$S_LED")"
+check "package.json -> no prompt" EMPTY "$(edit "$R/package.json" a b "$S_LED")"
+check "jest.config.ts -> no prompt" EMPTY "$(edit "$R/jest.config.ts" a b "$S_LED")"
+check "tsconfig.json -> no prompt" EMPTY "$(edit "$R/tsconfig.json" a b "$S_LED")"
+check "plugin's own scripts -> no prompt" EMPTY "$(edit "/x/gauntlet/scripts/gate.sh" a b "$S_LED")"
+
+# Silent is only half the change. Dropping the prompt is only defensible because the edit is
+# still reported at the end of the turn — a guard that stops prompting AND stops recording has
+# simply been deleted.
+check "a protected edit names itself on the ledger" "gate config edited: pyproject.toml" \
+    "$(cat "$(ledger_of "$S_LED")" 2>/dev/null)"
+check "all 11 protected edits are recorded" "11" \
+    "$(grep -c 'gate config edited' "$(ledger_of "$S_LED")" 2>/dev/null)"
 
 # --- ordinary edits must stay silent ---------------------------------------------------
 check "normal source edit -> silent" EMPTY "$(edit "$R/src/pkg/mod.py" 'x = 1' 'x = 2')"
@@ -42,10 +56,11 @@ check "normal test edit -> silent" EMPTY \
     "$(edit "$R/tests/unit/test_mod.py" 'assert True' 'assert 1 == 1')"
 check "README -> silent" EMPTY "$(edit "$R/README.md" a b)"
 
-# --- loosening markers: deny, not ask --------------------------------------------------
-# `deny` because there is no common legitimate version of these, and because a hook's `ask`
-# is resolved by the auto-mode classifier and may never reach the user. A guard that silently
-# self-approves produces confidence without protection.
+# --- loosening markers: hard deny --------------------------------------------------------
+# Hard, and not challengeable, because there is no common legitimate version of these. The
+# escalating alternative was never available anyway: a hook's `ask` is resolved by the
+# auto-mode classifier and may never reach the user, and a guard that silently self-approves
+# produces confidence without protection.
 #
 # The marker strings are ASSEMBLED here rather than written literally, so this file does not
 # itself trip the hook it tests. That is not a trick to route around the guard — it is the
@@ -115,11 +130,40 @@ check "uninstalling a checker -> deny" '"permissionDecision": "deny"' \
 # Only in command position: the same words as DATA inside a grep pattern or heredoc must pass.
 check "the words as data -> silent" EMPTY \
     "$(bash_cmd "grep -nE 'rm of a test|--no-verify' tests/test-protect.sh")"
-check "git checkout of tests -> ask" '"permissionDecision": "ask"' \
-    "$(bash_cmd 'git checkout -- tests/unit/test_mod.py')"
-check "sed -i on pyproject -> ask" '"permissionDecision": "ask"' \
-    "$(bash_cmd "sed -i '' 's/fail_under = 100/fail_under = 0/' pyproject.toml")"
 check "clearing pytest cache -> silent" EMPTY "$(bash_cmd 'rm -rf .pytest_cache')"
+
+# --- challenge, then trust ---------------------------------------------------------------
+# The shape that forced this design: `git checkout -- <test file>` is both "discard the test
+# you were asked to write" and "clean up the scaffold you just generated". No hook can tell
+# those apart. The old answer — prompt the user — handed the call to whoever had read the turn
+# least, and stalled every unattended run. The objection now goes to the agent instead, and an
+# objection that has been answered is not re-argued.
+S_CHK=$(new_session revert)
+rm -f "$(ledger_of "$S_CHK")"
+REVERT='git checkout -- tests/unit/test_mod.py'
+
+FIRST=$(bash_cmd "$REVERT" "$S_CHK")
+check "reverting a test: first attempt -> deny" '"permissionDecision": "deny"' "$FIRST"
+check "the objection argues with the agent" 'git diff -- <path>' "$FIRST"
+check "reverting a test: re-affirmed -> goes through" EMPTY "$(bash_cmd "$REVERT" "$S_CHK")"
+check "the override lands on the ledger" 'in-place revert/rewrite (challenged, re-affirmed)' \
+    "$(cat "$(ledger_of "$S_CHK")" 2>/dev/null)"
+
+# Affirming one revert must not pre-authorise a different one: the fingerprint is the action,
+# not the rule.
+check "a different revert is challenged on its own" '"permissionDecision": "deny"' \
+    "$(bash_cmd 'git checkout -- pyproject.toml' "$S_CHK")"
+
+S_SED=$(new_session sed)
+SEDCMD="sed -i '' 's/fail_under = 100/fail_under = 0/' pyproject.toml"
+check "sed -i on pyproject -> deny" '"permissionDecision": "deny"' "$(bash_cmd "$SEDCMD" "$S_SED")"
+check "sed -i re-affirmed -> goes through" EMPTY "$(bash_cmd "$SEDCMD" "$S_SED")"
+
+# A hard deny is not challengeable: "only makes sense in order to cheat" has no second reading,
+# so it gets no second attempt.
+S_RM=$(new_session rm)
+check "deleting a test stays denied on re-attempt" '"permissionDecision": "deny"' \
+    "$(bash_cmd 'rm tests/unit/test_mod.py' "$S_RM"; bash_cmd 'rm tests/unit/test_mod.py' "$S_RM")"
 check "running the tests -> silent" EMPTY "$(bash_cmd 'uv run pytest tests/unit -v')"
 check "plain ls -> silent" EMPTY "$(bash_cmd 'ls -la src')"
 
@@ -130,17 +174,22 @@ check "GAUNTLET=off -> silent" EMPTY \
 
 # The plugin's own repo is exempt: a guard's tests contain every pattern the guard matches, so
 # with the guard live its own development is impossible.
+#
+# The probe is a suppression marker, not a pyproject edit: since protected paths stopped
+# emitting a decision, a pyproject edit looks identical inside and outside the exemption and
+# would prove nothing.
 OWN=$(mktemp -d)
 mkdir -p "$OWN/.claude-plugin"
 printf '{"name":"gauntlet","version":"0.0.0"}\n' >"$OWN/.claude-plugin/plugin.json"
 git -C "$OWN" init -q 2>/dev/null
-check "own repo is exempt" EMPTY \
-    "$(pretooluse_payload Edit "$(jq -n --arg f "$OWN/pyproject.toml" \
-        '{file_path:$f, old_string:"a", new_string:"b"}')" "$OWN" | sh "$SCRIPTS/protect.sh")"
+own_edit() {
+    pretooluse_payload Edit "$(jq -n --arg f "$OWN/src/mod.py" \
+        --arg n "x = f()  $TYPE_IGNORE" \
+        '{file_path:$f, old_string:"x = f()", new_string:$n}')" "$OWN" | sh "$SCRIPTS/protect.sh"
+}
+check "own repo is exempt" EMPTY "$(own_edit)"
 printf '{"name":"other-plugin","version":"0.0.0"}\n' >"$OWN/.claude-plugin/plugin.json"
-check "another plugin repo is NOT exempt" '"permissionDecision": "ask"' \
-    "$(pretooluse_payload Edit "$(jq -n --arg f "$OWN/pyproject.toml" \
-        '{file_path:$f, old_string:"a", new_string:"b"}')" "$OWN" | sh "$SCRIPTS/protect.sh")"
+check "another plugin repo is NOT exempt" '"permissionDecision": "deny"' "$(own_edit)"
 rm -rf "$OWN"
 check "garbage payload -> silent" EMPTY "$(printf 'nonsense' | sh "$SCRIPTS/protect.sh")"
 check "empty payload -> silent" EMPTY "$(printf '' | sh "$SCRIPTS/protect.sh")"
@@ -148,4 +197,7 @@ check "no file_path -> silent" EMPTY \
     "$(pretooluse_payload Edit '{"old_string":"a"}' "$R" | sh "$SCRIPTS/protect.sh")"
 
 rm -rf "$R"
+# The ledger and the challenge marks live in TMPDIR, outside the throwaway repo.
+rm -f "${TMPDIR:-/tmp}"/gauntlet-ledger-sess-"$$"-* \
+    "${TMPDIR:-/tmp}"/gauntlet-challenge-sess-"$$"-* 2>/dev/null
 summary protect.sh

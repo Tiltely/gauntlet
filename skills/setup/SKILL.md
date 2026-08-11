@@ -60,9 +60,9 @@ graph from scratch. Same for `tsc`. Measure the narrowed command before believin
 Read `${CLAUDE_PLUGIN_ROOT}/core/manifest.md` for the field semantics and the glob subset
 (brace expansion is not supported — spell the patterns out).
 
-Tell the user this, because it looks like a bug otherwise: **writing this file triggers a
-permission prompt.** The manifest is a protected artefact — `protect.sh` escalates every
-edit to it, including this one. That is the mechanism working, not a fault.
+Writing this file needs no approval and produces no prompt. The manifest is a protected
+artefact, so `protect.sh` records the edit on the turn's receipt — the user will see one line
+about it when the turn closes. That is the mechanism working, not a fault.
 
 ### 3b. Commit it — do not advise it
 

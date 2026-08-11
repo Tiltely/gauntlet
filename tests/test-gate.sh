@@ -88,5 +88,34 @@ write_manifest "$R" "sh -c 'echo GOT:{files}; exit 1'"
 OUT=$(stop_payload "$R" "$(new_session l)" Edit | sh "$SCRIPTS/gate.sh")
 check "{files} is substituted" 'GOT:src/pkg/mod.py' "$OUT"
 
+# --- the receipt -------------------------------------------------------------------------
+# What protect.sh let through has to surface somewhere, or dropping the permission prompt was
+# just a way of hiding it. The Stop hook is that somewhere.
+S=$(new_session m)
+LED=$(ledger_of "$S")
+rm -f "$LED"
+printf -- '- gate config edited: pyproject.toml\n' >"$LED"
+
+write_manifest "$R" "true"
+OUT=$(stop_payload "$R" "$S" Edit | sh "$SCRIPTS/gate.sh")
+check "a passing gate still delivers the receipt" 'gate config edited: pyproject.toml' "$OUT"
+check "the receipt is cleared once delivered" EMPTY "$(cat "$LED" 2>/dev/null)"
+
+# A repo with no manifest is not gated at all, but protect.sh still guarded it, so the receipt
+# must survive the early exit.
+printf -- '- in-place revert/rewrite (challenged, re-affirmed): git checkout -- t\n' >"$LED"
+rm -f "$R2/.claude/gauntlet.json"
+OUT=$(stop_payload "$R2" "$S" Edit | sh "$SCRIPTS/gate.sh")
+check "no manifest -> receipt still delivered" 're-affirmed' "$OUT"
+
+# A block is not the turn closing. Spending the ledger there would lose it before the user
+# ever sees a finished turn.
+printf -- '- gate config edited: pyproject.toml\n' >"$LED"
+write_manifest "$R" "false"
+OUT=$(stop_payload "$R" "$S" Edit | sh "$SCRIPTS/gate.sh")
+check "a block does not spend the receipt" '"decision": "block"' "$OUT"
+check "the ledger survives a block" 'gate config edited' "$(cat "$LED" 2>/dev/null)"
+rm -f "$LED"
+
 rm -rf "$R" "$R2"
 summary gate.sh

@@ -6,24 +6,36 @@
 # manifest and the workflows, so a blocked turn has a shortcut — skip the test, ignore the
 # type, drop the coverage floor, delete the file. A prisoner who can edit the bars is not held.
 #
-# Two verdicts, and the split is load-bearing:
+# Three verdicts, no permission prompts, and the split is load-bearing:
 #
-#   deny — changes that ONLY make sense to weaken the gate: adding a suppression marker,
-#          moving a coverage threshold, gutting or deleting a test, `--no-verify`,
-#          uninstalling a checker. There is no common legitimate version of these.
+#   deny      — changes that ONLY make sense to weaken the gate: adding a suppression marker,
+#               moving a coverage threshold, gutting or deleting a test, `--no-verify`,
+#               uninstalling a checker. There is no common legitimate version of these, so
+#               there is nothing to negotiate.
 #
-#   ask  — editing a gate config file for any OTHER reason. pyproject.toml and package.json
-#          have a thousand honest uses and this hook cannot tell who asked for the change,
-#          so it escalates instead of blocking.
+#   challenge — usually a shortcut, occasionally legitimate: reverting a test file, rewriting
+#               gate config in place with `sed -i`. Denied ONCE with the objection; an
+#               identical re-attempt goes through and lands on the turn's receipt.
 #
-# Why not `ask` for everything (the original design): under `defaultMode: "auto"` with
-# `skipAutoPermissionPrompt`, a hook's `ask` is resolved by the auto classifier and may never
-# reach the user, while `deny` always lands. An `ask` that silently self-approves is worse
-# than no guard — confidence without protection is the exact failure this plugin exists to
-# prevent. So the dangerous subset does not depend on it.
+#   record    — editing a gate config file for any other reason. pyproject.toml and
+#               package.json have a thousand honest uses, so this stops nothing and only
+#               writes a ledger line.
 #
-# Order matters: every `deny` rule is evaluated BEFORE the `ask` rule, or lowering the
-# coverage floor inside pyproject.toml would exit as a mere `ask` on the file path.
+# What is deliberately NOT here any more is `ask`. Two reasons, and the second is the real one:
+#
+#   1. Mechanically, under `defaultMode: "auto"` a hook's `ask` is resolved by the auto
+#      classifier and may never reach the user, while `deny` always lands. A guard that
+#      silently self-approves is confidence without protection.
+#
+#   2. In principle, the gauntlet is not "ask me about everything important" — it is "make
+#      sure everything important was done the way we agreed". A prompt stops the turn to ask a
+#      human who has not read it yet; a `deny` argues with the agent, which HAS read it and can
+#      answer. Escalation was the design's way of admitting it could not tell a shortcut from
+#      an honest change. Arguing with the agent and writing down what it decided is the better
+#      answer to the same uncertainty, and it is the only one that survives an unattended run.
+#
+# Order matters: every `deny` rule is evaluated BEFORE the challenge and record rules, or
+# lowering the coverage floor inside pyproject.toml would exit as a mere ledger line.
 #
 # The protected list lives HERE, in the plugin, not in .claude/gauntlet.json —
 # a configurable guard is a removable guard.
@@ -38,6 +50,8 @@ gauntlet_debug_dump "$INPUT" "PreToolUse"
 gauntlet_require_jq || exit 0
 
 TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+SESSION=$(gauntlet_session "$INPUT")
+ROOT=$(gauntlet_root "$INPUT")
 
 # Developing the guard itself is exempt — see gauntlet_is_own_repo for why this is structural
 # and not a convenience.
@@ -46,7 +60,7 @@ TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 # payload's cwd is all there is, and it does NOT reflect a `cd` inside the command — so a
 # `sed`/`grep` over the plugin's own tests from another cwd still trips the guard. Accepted
 # gap: use GAUNTLET=off for that, or edit the file with Edit instead of a shell one-liner.
-gauntlet_is_own_repo "$(gauntlet_root "$INPUT")" && exit 0
+gauntlet_is_own_repo "$ROOT" && exit 0
 
 # --- Bash: the back door around a Write/Edit guard -------------------------------------
 # Blocking edits to a test file is pointless if `rm` still works.
@@ -89,11 +103,13 @@ if [ "$TOOL" = "Bash" ]; then
             "gauntlet: this uninstalls a quality tool the gate runs. Removing the checker is not fixing the check."
     fi
 
+    # Challenged, not denied: reverting your own scratch file and discarding the test you were
+    # supposed to write are the same command. The hook cannot tell them apart — the agent can.
     if printf '%s' "$CMD" | grep -qE \
         "${CMDPOS}(git[[:space:]]+(checkout|restore)[^;&|]*|sed[[:space:]]+-i[^;&|]*)(test|spec|pyproject|ruff|mypy|coveragerc|Justfile|justfile)" \
         2>/dev/null; then
-        gauntlet_pretooluse_decision "ask" \
-            "gauntlet: this reverts or rewrites tests or gate configuration in place."
+        gauntlet_challenge "$SESSION" "in-place revert/rewrite" "$CMD" \
+            "gauntlet: this reverts or rewrites tests or gate configuration in place, and what it discards is not recoverable afterwards. Look at what you are actually throwing away first — \`git diff -- <path>\` — and confirm it is scaffolding you created, not coverage you were asked to keep. If it is, re-issue this exact command: it will go through and be recorded on the turn's receipt."
     fi
     exit 0
 fi
@@ -194,9 +210,16 @@ coverageThreshold'
     fi
 fi
 
-# --- Protected paths: escalate, do not block -------------------------------------------
-# Each entry is a file whose edit can turn a red gate green without fixing anything — but all
-# of them have legitimate uses too, so this is the `ask` half.
+# --- Protected paths: record, do not block ---------------------------------------------
+# Each entry is a file whose edit CAN turn a red gate green without fixing anything — but the
+# specific ways of doing that (a suppression marker, a coverage floor) are already denied
+# above, by content, before we get here. What is left is the residue: everything else anyone
+# ever does to a pyproject.toml.
+#
+# Stopping the turn for that residue was the plugin's worst trade. It fired constantly, it was
+# right almost never, and a guard that is wrong most of the time teaches the user to approve
+# without reading — which costs more protection than the rule was ever buying. So this half
+# writes a line and gets out of the way.
 PROTECTED_PATHS='(^|/)\.claude/gauntlet\.json$
 (^|/)\.claude/settings(\.local)?\.json$
 (^|/)pyproject\.toml$
@@ -218,8 +241,9 @@ PROTECTED_PATHS='(^|/)\.claude/gauntlet\.json$
 
 for _p in $PROTECTED_PATHS; do
     if printf '%s' "$FILE" | grep -qE "$_p" 2>/dev/null; then
-        gauntlet_pretooluse_decision "ask" \
-            "gauntlet: \`$FILE\` configures the quality gate itself. Editing it can turn a red gate green without fixing anything. Confirm you want this change, or fix the underlying failure instead."
+        gauntlet_ledger_append "$SESSION" \
+            "gate config edited: $(gauntlet_relpath "$ROOT" "$FILE")"
+        exit 0
     fi
 done
 

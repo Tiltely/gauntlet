@@ -5,6 +5,53 @@ All notable changes to the gauntlet plugin.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-11
+
+### Changed
+- **No hook asks the user to approve anything any more.** `ask` is gone from `protect.sh`.
+  It escalated to a human who had not read the turn, it stalled every unattended run, and —
+  because the protected-paths rule was right maybe one time in twenty — it taught its user to
+  approve without reading. A guard you click through is not a guard.
+
+  Reported from real use: an autonomous run stopped on a permission prompt for
+  `git checkout -- <test file>`, reverting a temp generator the agent had created itself,
+  with nobody watching. The gauntlet is not *"ask me about everything important"*, it is
+  *"make sure everything important was done the way we agreed"*. Those are different
+  machines.
+
+  `ask` is replaced by two mechanisms, neither of which interrupts:
+
+  - **`challenge` — object once, then trust.** For shapes that are usually a shortcut and
+    occasionally legitimate (`git checkout --` over a test, `sed -i` over gate config). The
+    first attempt is denied with the objection attached; an identical re-attempt in the same
+    session goes through and is recorded. The objection arrives as a tool result, so it
+    argues with the agent, which has the context, instead of interrupting the human, who does
+    not. The hard `deny` rules are not routed through this: *"only makes sense in order to
+    cheat"* has no second reading, so it gets no second attempt.
+  - **The receipt.** Everything `protect.sh` lets through — every protected-path edit, every
+    re-affirmed challenge — writes a line to a session-scoped ledger, and the `Stop` hook
+    delivers it when the turn closes. Judging ten decisions with the diff in front of you
+    beats approving ten prompts blind. A blocked `Stop` deliberately does *not* spend the
+    ledger: that turn is not closing.
+
+- Editing a gate config file (`pyproject.toml`, `package.json`, `tsconfig.json`, a workflow…)
+  no longer stops anything. The specific ways such a file can turn a red gate green — a
+  suppression marker, a moved coverage floor — are already denied by content, before the path
+  rule is ever reached. What was left was the residue, and stopping the turn for the residue
+  was the plugin's worst trade.
+- `/gauntlet:setup` no longer warns that writing the manifest triggers a permission prompt.
+  It does not.
+
+### Fixed
+- `gate.sh` delivers the receipt on **every** exit path, including the ones where the gate
+  never ran (no manifest, no source change, nothing edited). A receipt that only appears when
+  the tests happened to run is not a receipt.
+
+### Tests
+- 98 cases, up from 77: the challenge/re-affirm cycle, per-action fingerprinting, ledger
+  contents, receipt delivery on a passing gate and on a repo with no manifest, and ledger
+  survival across a block.
+
 ## [0.2.0] - 2026-08-09
 
 ### Changed

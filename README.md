@@ -32,9 +32,13 @@ hook that returns `decision: block` cannot be reasoned with.
 
 | Hook | Rule |
 |---|---|
-| `Stop` | The turn does not close while the repo's fast check is red. If the turn touched source, the hook **runs the tests itself** |
-| `PreToolUse` | The agent cannot loosen the gate alone — editing the coverage config, the linter config, the workflows, or adding a `skip`/`ignore` marker escalates to your approval |
+| `Stop` | The turn does not close while the repo's fast check is red. If the turn touched source, the hook **runs the tests itself**. It also delivers the turn's receipt |
+| `PreToolUse` | The agent cannot loosen the gate alone — a `skip`/`ignore` marker, a moved coverage floor, a deleted test or a `--no-verify` is **denied**, and the agent is told why |
 | `PreToolUse` | No fixture of an external payload without provenance recording where the bytes came from |
+
+**No hook here ever asks you to approve anything.** The gauntlet is not "ask me about
+everything important" — it is "make sure everything important was done the way we agreed".
+See below.
 
 Plus three skills: `/gauntlet:setup` to arm a repo, `/gauntlet:run` for the full pre-PR
 gauntlet (mutation testing + test-quality audit), `/gauntlet:capture` to fetch a real payload.
@@ -52,16 +56,35 @@ theatre. Blocked and pressed to finish, the cheapest path out is skipping the te
 the type, dropping the coverage floor, or deleting the file — all things the agent can write.
 `protect.sh` closes that.
 
-Its two verdicts are split on one line: **changes that only make sense to weaken the gate are
-denied; edits to gate config for any other reason escalate to you.** Adding a suppression
-marker, moving a coverage threshold, gutting a test, `--no-verify`, uninstalling a checker —
-these have no common legitimate form, so they are denied outright. Editing `pyproject.toml`
-has a thousand honest uses, so that one asks.
+Its three verdicts are split on how much doubt there honestly is:
 
-The split is not stylistic. Under `defaultMode: "auto"`, a hook's `ask` is resolved by the
-auto classifier and may never reach you, while `deny` always lands. **An `ask` that silently
-self-approves is worse than no guard** — confidence without protection is the exact failure
-this plugin exists to prevent, so the dangerous subset does not depend on it.
+| Verdict | For | What happens |
+|---|---|---|
+| **deny** | Only makes sense in order to cheat: a suppression marker, a moved coverage floor, a gutted or deleted test, `--no-verify`, uninstalling a checker | Blocked. The agent gets the objection as a tool result and has to solve the problem instead |
+| **challenge** | Usually a shortcut, occasionally legitimate: `git checkout --` over a test, `sed -i` over gate config | Denied **once**, with the objection. An identical re-attempt goes through and is recorded |
+| **record** | Editing gate config for any other reason — `pyproject.toml` has a thousand honest uses | Nothing is blocked. A line goes on the turn's receipt |
+
+**3. Argue with the agent, do not interrupt the human.** The first version escalated the
+doubtful cases to a permission prompt. That was the wrong machine. A prompt stops the turn to
+ask someone who has not read it yet and cannot check the claim, it makes unattended runs
+impossible, and — because the rule was right maybe one time in twenty — it taught its user to
+approve without reading. A guard you click through is not a guard.
+
+So the doubt is spent where the context is. A `deny` reaches the agent as a tool result: it
+has read the turn, it knows whether that file was scaffolding or coverage, and it has to
+answer the objection before acting. What the *challenge* verdict buys is that no gate-shaped
+action can happen **reflexively** — read the objection, decide against it, act again on
+purpose. Yes, that is a lock the agent can open. The alternative was not a stronger lock; it
+was the same decision handed to whoever had the least context, mid-turn.
+
+The `Stop` hook then prints one receipt of everything that went through, at the moment you are
+looking at the finished work. Judging ten decisions with the diff in front of you beats
+approving ten prompts blind.
+
+There is also a mechanical reason the dangerous subset never used `ask`: under
+`defaultMode: "auto"` a hook's `ask` is resolved by the auto classifier and may never reach
+you, while `deny` always lands. **An `ask` that silently self-approves is worse than no
+guard.**
 
 ## Install
 

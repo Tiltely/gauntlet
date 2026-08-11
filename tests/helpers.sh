@@ -67,10 +67,21 @@ stop_payload() {
         "$_sess" "$_cwd" "$_calls"
 }
 
-# pretooluse_payload <tool> <json-tool-input> [cwd]
+# pretooluse_payload <tool> <json-tool-input> [cwd] [session]
+#
+# The session defaults to a per-RUN value, not a per-case one: the challenge marks and the
+# ledger live in TMPDIR and outlive the process, so a fixed default would make the second run
+# of the suite disagree with the first — the "first attempt is denied" cases would come back
+# as already-affirmed.
 pretooluse_payload() {
-    printf '{"hook_event_name":"PreToolUse","cwd":"%s","tool_name":"%s","tool_input":%s}' \
-        "${3:-$(pwd)}" "$1" "$2"
+    printf '{"hook_event_name":"PreToolUse","session_id":"%s","cwd":"%s","tool_name":"%s","tool_input":%s}' \
+        "${4:-$(new_session default)}" "${3:-$(pwd)}" "$1" "$2"
+}
+
+# The ledger file protect.sh writes for a given session, so a test can assert on it.
+ledger_of() {
+    printf '%s/gauntlet-ledger-%s' "${TMPDIR:-/tmp}" \
+        "$(printf '%s' "$1" | tr -c 'a-zA-Z0-9._-' '_')"
 }
 
 # Retry counters are keyed on session_id; a fresh one per case keeps cases independent.

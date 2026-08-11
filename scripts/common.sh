@@ -134,3 +134,120 @@ gauntlet_pretooluse_decision() {
     }'
     exit 0
 }
+
+# --- The ledger --------------------------------------------------------------------------
+#
+# The gauntlet is not "ask me about everything important". It is "make sure everything
+# important was done the way we agreed". Those are different machines: a mid-turn permission
+# prompt hands the judgement to a human who has not seen the turn yet and has no way to check
+# the claim, and — worse — it trains that human to click through. A receipt at the end hands
+# them the finished turn and every gate-shaped thing that happened inside it.
+#
+# So the guards that cannot honestly be described as "this only makes sense in order to
+# cheat" no longer stop anything. They write a line here, and gate.sh reads it back when the
+# turn closes.
+#
+# Session-scoped and in TMPDIR on purpose: a file inside the repo would be one more artefact
+# the agent can rewrite, and the ledger needs to outlive nothing but the turn.
+
+# Session id from any hook payload, sanitised for use in a filename. Absent -> a shared
+# fallback bucket, which is imprecise but never a crash (design rule 1).
+gauntlet_session() {
+    _s=$(printf '%s' "$1" | jq -r '.session_id // empty' 2>/dev/null)
+    [ -n "$_s" ] || _s=nosession
+    printf '%s' "$_s" | tr -c 'a-zA-Z0-9._-' '_'
+}
+
+# Stable short digest of stdin. Three implementations because the fallback matters more than
+# the algorithm: an unavailable hasher must degrade to a weaker key, never to no key at all.
+gauntlet_hash() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 2>/dev/null | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum 2>/dev/null | awk '{print $1}'
+    else
+        cksum 2>/dev/null | tr -cd '0-9'
+    fi
+}
+
+gauntlet_ledger_file() {
+    printf '%s/gauntlet-ledger-%s' "${TMPDIR:-/tmp}" "$1"
+}
+
+gauntlet_ledger_append() {
+    printf -- '- %s\n' "$2" >>"$(gauntlet_ledger_file "$1")" 2>/dev/null
+    return 0
+}
+
+# Print the ledger and clear it. The receipt covers THIS turn, not the session so far:
+# repeating yesterday's entries every turn is how a receipt becomes wallpaper.
+gauntlet_ledger_take() {
+    _f=$(gauntlet_ledger_file "$1")
+    [ -r "$_f" ] || return 0
+    cat "$_f" 2>/dev/null
+    rm -f "$_f" 2>/dev/null
+    return 0
+}
+
+# --- Challenge, then trust -----------------------------------------------------------------
+#
+# For the shapes that are usually a shortcut and occasionally legitimate. The FIRST attempt is
+# denied with the objection attached; an IDENTICAL re-attempt in the same session goes through
+# and lands on the receipt.
+#
+# Yes, this is a lock the agent can open. The trade is deliberate: a deny with no way out does
+# not remove the decision, it routes it to the user mid-turn — the exact behaviour this plugin
+# is being fixed to stop. What the mechanism actually buys is that no gate-shaped action can
+# happen REFLEXIVELY. The agent has to read the objection, answer it, and act again on purpose;
+# and because the objection arrives as a tool result, it argues with the agent instead of
+# interrupting the human. The ledger is what keeps that honest.
+#
+# The hard `deny` rules are NOT routed through here. "Only makes sense in order to cheat" has
+# no second reading, so it gets no second attempt.
+#
+# ponytail: exact-fingerprint match, so a re-worded retry is challenged again. Normalising
+# whitespace is the upgrade path if that turns out to be common in practice.
+gauntlet_challenge() {
+    _sess="$1"
+    _rule="$2"
+    _subject="$3"
+    _reason="$4"
+    _fp=$(printf '%s\n%s' "$_rule" "$_subject" | gauntlet_hash)
+    _mark="${TMPDIR:-/tmp}/gauntlet-challenge-${_sess}-${_fp}"
+
+    # Affirmed once, trusted for the rest of the session for this exact action — but recorded
+    # every time. Re-arguing an answered objection is nagging, not a guard.
+    if [ -f "$_mark" ]; then
+        gauntlet_ledger_append "$_sess" "$_rule (challenged, re-affirmed): $_subject"
+        exit 0
+    fi
+
+    : >"$_mark" 2>/dev/null
+    gauntlet_pretooluse_decision "deny" "$_reason"
+}
+
+# Close a Stop hook: emit the turn's receipt merged with whatever the caller wanted to say,
+# then exit 0. Silent when there is nothing to report — a hook that prints every turn is a
+# hook nobody reads.
+#
+# Every one of gate.sh's exit paths funnels through here, including the ones where the gate
+# never ran. A receipt that only appears when the tests happened to run is not a receipt.
+gauntlet_stop_exit() {
+    _sess="$1"
+    _extra="$2"
+    _led=$(gauntlet_ledger_take "$_sess")
+    _msg=''
+    [ -n "$_led" ] && _msg="gauntlet let these through this turn — worth a look before the PR:
+$_led"
+
+    if [ -n "$_extra" ] && [ -n "$_msg" ]; then
+        printf '%s' "$_extra" | jq --arg m "$_msg" \
+            '.systemMessage = ((.systemMessage // "") +
+                               (if (.systemMessage // "") == "" then "" else "\n\n" end) + $m)'
+    elif [ -n "$_extra" ]; then
+        printf '%s' "$_extra"
+    elif [ -n "$_msg" ]; then
+        jq -n --arg m "$_msg" '{systemMessage: $m}'
+    fi
+    exit 0
+}
