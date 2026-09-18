@@ -103,12 +103,22 @@ gauntlet_glob_to_ere() {
 
 # Build one alternated ERE from a JSON array of globs in a manifest.
 # Empty/absent array -> empty output, and each caller decides what that means.
+#
+# Read one pattern per line, never through an unquoted `$(...)`: the hook runs with the repo
+# as cwd, and an unquoted expansion lets the shell match `apps/**/*.ts` against that cwd
+# before sed ever sees it — the glob became the one or two files at `apps/*/*.ts` and every
+# deeper source file passed the gate unchecked.
 gauntlet_patterns_to_ere() {
     _ere=''
-    for _pat in $(jq -r "$2[]? // empty" "$1" 2>/dev/null); do
+    _list=$(jq -r "$2[]? // empty" "$1" 2>/dev/null)
+    [ -n "$_list" ] || return 0
+    while IFS= read -r _pat; do
+        [ -n "$_pat" ] || continue
         _one=$(gauntlet_glob_to_ere "$_pat")
         if [ -z "$_ere" ]; then _ere="$_one"; else _ere="$_ere|$_one"; fi
-    done
+    done <<EOF
+$_list
+EOF
     printf '%s' "$_ere"
 }
 

@@ -46,6 +46,23 @@ printf '# docs\n' >"$R2/README.md"
 OUT=$(stop_payload "$R2" "$(new_session g)" Write | sh "$SCRIPTS/gate.sh")
 check "change outside sourcePatterns -> silent" EMPTY "$OUT"
 
+# --- a manifest glob must reach the matcher as text, not as what it expands to -------
+# The hook runs with the repo as cwd. Unquoted, `apps/**/*.ts` was matched by the shell
+# against that cwd first (`apps/*/*.ts` → the one or two files at that depth), so every
+# source file below them slipped past the gate while the manifest looked right.
+R3=$(make_repo)
+mkdir -p "$R3/apps/web/src/lib"
+printf '// generated\n' >"$R3/apps/web/next-env.d.ts"
+printf 'export const a = 1\n' >"$R3/apps/web/src/lib/a.ts"
+git -C "$R3" add -A 2>/dev/null
+git -C "$R3" -c user.email=t@t -c user.name=t commit -qm apps 2>/dev/null
+cat >"$R3/.claude/gauntlet.json" <<EOF
+{ "fast": "false", "sourcePatterns": ["apps/**/*.ts"] }
+EOF
+printf 'export const a = 2\n' >"$R3/apps/web/src/lib/a.ts"
+OUT=$(cd "$R3" && stop_payload "$R3" "$(new_session g2)" Edit | sh "$SCRIPTS/gate.sh")
+check "glob not expanded against cwd -> deep source change blocks" '"decision": "block"' "$OUT"
+
 # --- retry cap: three blocks, then the turn is the user's -----------------------------
 S=$(new_session h)
 write_manifest "$R" "false"

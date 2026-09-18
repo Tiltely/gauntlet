@@ -5,6 +5,18 @@ All notable changes to the gauntlet plugin.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-18
+
+### Fixed
+- **Manifest globs were expanded by the shell before they were converted to regexes.**
+  `gauntlet_patterns_to_ere` iterated over an unquoted `$(jq …)`, and the hook runs with the
+  repo as cwd, so `apps/**/*.ts` was matched against the checkout first: it became
+  `apps/web/next-env.d.ts|apps/web/vitest.config.ts` (the two files at `apps/*/*.ts`) and
+  every deeper source file slipped past the gate while the manifest read correctly. Found
+  arming `project-dojo-shinka`: a deliberate type error in `apps/web/src/lib/` closed the turn
+  in silence. Patterns are now read line by line, unexpanded; a regression test covers the
+  exact shape.
+
 ## [0.3.0] - 2026-08-11
 
 ### Changed
